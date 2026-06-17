@@ -488,104 +488,141 @@ class MainWindow(QMainWindow):
 
     @Slot(object)
     def _on_data_received(self, data: FlowCytometryData):
-        corr = self.calibration_engine.get_current_correction
+        try:
+            corr = self.calibration_engine.get_current_correction
 
-        wbc = data.wbc_count * corr("wbc").get("gain", 1.0)
-        rbc = data.rbc_count * corr("rbc").get("gain", 1.0)
-        plt = data.plt_count * corr("plt").get("gain", 1.0)
+            wbc = data.wbc_count * corr("wbc").get("gain", 1.0)
+            rbc = data.rbc_count * corr("rbc").get("gain", 1.0)
+            plt = data.plt_count * corr("plt").get("gain", 1.0)
 
-        self._update_count_cards(wbc, rbc, plt)
-        self._update_count_plots(wbc, rbc, plt)
-        self._update_scatter(data)
-        self._update_differential(data)
+            self._update_count_cards(wbc, rbc, plt)
+            self._update_count_plots(wbc, rbc, plt)
+            self._update_scatter(data)
+            self._update_differential(data)
 
-        if self.calibration_engine.is_running():
-            self.calibration_engine.process_data(data)
+            if self.calibration_engine.is_running():
+                self.calibration_engine.process_data(data)
 
-        conn_status = self.connection_label.text()
-        mode = "模拟" if self.sim_check.isChecked() else "硬件"
-        self.info_text.setText(
-            f"串口: {conn_status} | 模式: {mode} | "
-            f"样本速率: 10Hz | 数据库: 已连接"
-        )
+            conn_status = self.connection_label.text()
+            mode = "模拟" if self.sim_check.isChecked() else "硬件"
+            self.info_text.setText(
+                f"串口: {conn_status} | 模式: {mode} | "
+                f"样本速率: 10Hz | 数据库: 已连接"
+            )
+        except Exception as e:
+            self.status_label.setText(f"数据处理异常: {str(e)}")
 
     def _update_count_cards(self, wbc, rbc, plt):
-        self.wbc_value.val_label.setText(f"{wbc:.2f}")
-        self.rbc_value.val_label.setText(f"{rbc:.2f}")
-        self.plt_value.val_label.setText(f"{plt:.0f}")
+        try:
+            import math
+            if not all(math.isfinite(v) for v in (wbc, rbc, plt)):
+                return
 
-        if wbc < 3.5 or wbc > 9.5:
-            self.wbc_value.val_label.setStyleSheet(
-                "color: #ef4444; font-size: 28px; font-weight: bold;"
-            )
-        else:
-            self.wbc_value.val_label.setStyleSheet(
-                f"color: {WBC_COLOR}; font-size: 28px; font-weight: bold;"
-            )
+            self.wbc_value.val_label.setText(f"{wbc:.2f}")
+            self.rbc_value.val_label.setText(f"{rbc:.2f}")
+            self.plt_value.val_label.setText(f"{plt:.0f}")
 
-        if rbc < 4.0 or rbc > 5.5:
-            self.rbc_value.val_label.setStyleSheet(
-                "color: #ef4444; font-size: 28px; font-weight: bold;"
-            )
-        else:
-            self.rbc_value.val_label.setStyleSheet(
-                f"color: {RBC_COLOR}; font-size: 28px; font-weight: bold;"
-            )
+            if wbc < 3.5 or wbc > 9.5:
+                self.wbc_value.val_label.setStyleSheet(
+                    "color: #ef4444; font-size: 28px; font-weight: bold;"
+                )
+            else:
+                self.wbc_value.val_label.setStyleSheet(
+                    f"color: {WBC_COLOR}; font-size: 28px; font-weight: bold;"
+                )
 
-        if plt < 150 or plt > 300:
-            self.plt_value.val_label.setStyleSheet(
-                "color: #ef4444; font-size: 28px; font-weight: bold;"
-            )
-        else:
-            self.plt_value.val_label.setStyleSheet(
-                f"color: {PLT_COLOR}; font-size: 28px; font-weight: bold;"
-            )
+            if rbc < 4.0 or rbc > 5.5:
+                self.rbc_value.val_label.setStyleSheet(
+                    "color: #ef4444; font-size: 28px; font-weight: bold;"
+                )
+            else:
+                self.rbc_value.val_label.setStyleSheet(
+                    f"color: {RBC_COLOR}; font-size: 28px; font-weight: bold;"
+                )
+
+            if plt < 150 or plt > 300:
+                self.plt_value.val_label.setStyleSheet(
+                    "color: #ef4444; font-size: 28px; font-weight: bold;"
+                )
+            else:
+                self.plt_value.val_label.setStyleSheet(
+                    f"color: {PLT_COLOR}; font-size: 28px; font-weight: bold;"
+                )
+        except Exception:
+            pass
 
     def _update_count_plots(self, wbc, rbc, plt):
-        t = time.time()
-        self._history_timestamps.append(t)
-        self._history_wbc.append(wbc)
-        self._history_rbc.append(rbc)
-        self._history_plt.append(plt)
+        try:
+            import math
+            if not all(math.isfinite(v) for v in (wbc, rbc, plt)):
+                return
+            t = time.time()
+            self._history_timestamps.append(t)
+            self._history_wbc.append(wbc)
+            self._history_rbc.append(rbc)
+            self._history_plt.append(plt)
 
-        idx = list(range(len(self._history_wbc)))
-        self.curve_wbc.setData(idx, list(self._history_wbc))
-        self.curve_rbc.setData(idx, list(self._history_rbc))
-        self.curve_plt.setData(idx, list(self._history_plt))
+            idx = list(range(len(self._history_wbc)))
+            self.curve_wbc.setData(idx, list(self._history_wbc))
+            self.curve_rbc.setData(idx, list(self._history_rbc))
+            self.curve_plt.setData(idx, list(self._history_plt))
+        except Exception:
+            pass
 
     def _update_scatter(self, data: FlowCytometryData):
-        cell_data_map = {
-            "neutrophil": (data.neutrophil_fsc, data.neutrophil_ssc),
-            "lymphocyte": (data.lymphocyte_fsc, data.lymphocyte_ssc),
-            "monocyte": (data.monocyte_fsc, data.monocyte_ssc),
-            "eosinophil": (data.eosinophil_fsc, data.eosinophil_ssc),
-            "basophil": (data.basophil_fsc, data.basophil_ssc),
-        }
-        for key, (fsc_list, ssc_list) in cell_data_map.items():
-            if not fsc_list or not ssc_list:
-                continue
-            n = min(len(fsc_list), len(ssc_list))
-            pts = [{"pos": (fsc_list[i], ssc_list[i])} for i in range(n)]
-            self.scatter_items[key].setPoints(pts)
+        try:
+            import math
+            cell_data_map = {
+                "neutrophil": (data.neutrophil_fsc, data.neutrophil_ssc),
+                "lymphocyte": (data.lymphocyte_fsc, data.lymphocyte_ssc),
+                "monocyte": (data.monocyte_fsc, data.monocyte_ssc),
+                "eosinophil": (data.eosinophil_fsc, data.eosinophil_ssc),
+                "basophil": (data.basophil_fsc, data.basophil_ssc),
+            }
+            for key, (fsc_list, ssc_list) in cell_data_map.items():
+                if not fsc_list or not ssc_list:
+                    continue
+                n = min(len(fsc_list), len(ssc_list))
+                pts = []
+                for i in range(n):
+                    try:
+                        fv = float(fsc_list[i])
+                        sv = float(ssc_list[i])
+                        if math.isfinite(fv) and math.isfinite(sv):
+                            pts.append({"pos": (fv, sv)})
+                    except (TypeError, ValueError):
+                        continue
+                if pts:
+                    self.scatter_items[key].setPoints(pts)
+        except Exception:
+            pass
 
     def _update_differential(self, data: FlowCytometryData):
-        values = [
-            data.neutrophil_pct,
-            data.lymphocyte_pct,
-            data.monocyte_pct,
-            data.eosinophil_pct,
-            data.basophil_pct,
-        ]
-        refs = [(40, 75), (20, 50), (1, 10), (0.4, 8), (0, 2)]
+        try:
+            import math
+            values = [
+                data.neutrophil_pct,
+                data.lymphocyte_pct,
+                data.monocyte_pct,
+                data.eosinophil_pct,
+                data.basophil_pct,
+            ]
+            refs = [(40, 75), (20, 50), (1, 10), (0.4, 8), (0, 2)]
 
-        for i, (v, (low, high)) in enumerate(zip(values, refs)):
-            item = self.diff_table.item(i, 1)
-            if item:
-                item.setText(f"{v:.1f}")
-                if v < low or v > high:
-                    item.setForeground(QColor("#ef4444"))
-                else:
-                    item.setForeground(QColor("#22c55e"))
+            for i, (v, (low, high)) in enumerate(zip(values, refs)):
+                item = self.diff_table.item(i, 1)
+                if item:
+                    if not math.isfinite(v):
+                        item.setText("--")
+                        item.setForeground(QColor("#94a3b8"))
+                    else:
+                        item.setText(f"{v:.1f}")
+                        if v < low or v > high:
+                            item.setForeground(QColor("#ef4444"))
+                        else:
+                            item.setForeground(QColor("#22c55e"))
+        except Exception:
+            pass
 
     @Slot(str)
     def _on_serial_error(self, msg: str):
@@ -631,49 +668,67 @@ class MainWindow(QMainWindow):
 
     @Slot(object)
     def _on_calibration_progress(self, progress: CalibrationProgress):
-        self.calib_progress.setValue(int(progress.progress_pct))
-        self.calib_status.setText(progress.status_message)
+        try:
+            self.calib_progress.setValue(int(progress.progress_pct))
+            self.calib_status.setText(progress.status_message)
+        except Exception:
+            pass
 
     def _on_calibration_finished(self, results: List[CalibrationResult]):
-        self.btn_start_calib.setEnabled(True)
-        self.btn_stop_calib.setEnabled(False)
+        try:
+            self.btn_start_calib.setEnabled(True)
+            self.btn_stop_calib.setEnabled(False)
 
-        self.calib_table.setRowCount(0)
-        for r in results:
-            row = self.calib_table.rowCount()
-            self.calib_table.insertRow(row)
+            self.calib_table.setRowCount(0)
+            for r in results:
+                row = self.calib_table.rowCount()
+                self.calib_table.insertRow(row)
 
-            items = [
-                (r.label, Qt.AlignLeft),
-                (f"{r.target_value:.3f}", Qt.AlignCenter),
-                (f"{r.measured_mean:.3f}", Qt.AlignCenter),
-                (f"{r.measured_std:.4f}", Qt.AlignCenter),
-                (f"{r.measured_cv:.2f}%", Qt.AlignCenter),
-                (f"{r.deviation:+.2f}%", Qt.AlignCenter),
-                (f"{r.gain:.6f}", Qt.AlignCenter),
-                (f"{r.offset:+.3f}", Qt.AlignCenter),
-                ("✓ PASS" if r.passed else "✗ FAIL", Qt.AlignCenter),
-            ]
-            for col, (text, align) in enumerate(items):
-                item = QTableWidgetItem(text)
-                item.setTextAlignment(align | Qt.AlignVCenter)
-                if col == 5:
-                    color = QColor("#22c55e") if abs(r.deviation) <= 3.0 else QColor("#ef4444")
-                    item.setForeground(color)
-                if col == 8:
-                    color = QColor("#22c55e") if r.passed else QColor("#ef4444")
-                    item.setForeground(color)
-                    f = item.font()
-                    f.setBold(True)
-                    item.setFont(f)
-                self.calib_table.setItem(row, col, item)
+                items = [
+                    (r.label, Qt.AlignLeft),
+                    (f"{r.target_value:.3f}", Qt.AlignCenter),
+                    (f"{r.measured_mean:.3f}", Qt.AlignCenter),
+                    (f"{r.measured_std:.4f}", Qt.AlignCenter),
+                    (f"{r.measured_cv:.2f}%", Qt.AlignCenter),
+                    (f"{r.deviation:+.2f}%", Qt.AlignCenter),
+                    (f"{r.gain:.6f}", Qt.AlignCenter),
+                    (f"{r.offset:+.3f}", Qt.AlignCenter),
+                    ("✓ PASS" if r.passed else "✗ FAIL", Qt.AlignCenter),
+                ]
+                for col, (text, align) in enumerate(items):
+                    item = QTableWidgetItem(text)
+                    item.setTextAlignment(align | Qt.AlignVCenter)
+                    if col == 5:
+                        color = QColor("#22c55e") if abs(r.deviation) <= 3.0 else QColor("#ef4444")
+                        item.setForeground(color)
+                    if col == 8:
+                        color = QColor("#22c55e") if r.passed else QColor("#ef4444")
+                        item.setForeground(color)
+                        f = item.font()
+                        f.setBold(True)
+                        item.setFont(f)
+                    self.calib_table.setItem(row, col, item)
 
-        passed = sum(1 for r in results if r.passed)
-        total = len(results)
-        self.calib_status.setText(
-            f"标定完成: {passed}/{total} 通道通过 "
-            f"(偏差≤±3%, CV≤5%) | 参数已保存至数据库"
-        )
+            passed = sum(1 for r in results if r.passed)
+            total = len(results)
+            self.calib_status.setText(
+                f"标定完成: {passed}/{total} 通道通过 "
+                f"(偏差≤±3%, CV≤5%) | 参数已保存至数据库"
+            )
+        except Exception as e:
+            try:
+                self.calib_status.setText(f"标定结果渲染异常: {str(e)}")
+            except Exception:
+                pass
+
+    @Slot(str)
+    def on_global_error(self, error_msg: str):
+        try:
+            current = self.status_label.text()
+            if "异常" not in current:
+                self.status_label.setText(f"系统异常已捕获: {error_msg} (详见 error.log)")
+        except Exception:
+            pass
 
     @Slot()
     def _show_calibration_history(self):

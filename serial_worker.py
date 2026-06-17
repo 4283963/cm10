@@ -153,11 +153,18 @@ class SerialWorker(QThread):
         bas_pct = 3 + 0.5 * random.uniform(-1, 1)
 
         total = neu_pct + lym_pct + mon_pct + eos_pct + bas_pct
-        data.neutrophil_pct = neu_pct / total * 100
-        data.lymphocyte_pct = lym_pct / total * 100
-        data.monocyte_pct = mon_pct / total * 100
-        data.eosinophil_pct = eos_pct / total * 100
-        data.basophil_pct = bas_pct / total * 100
+        if total <= 1e-10:
+            data.neutrophil_pct = 0.0
+            data.lymphocyte_pct = 0.0
+            data.monocyte_pct = 0.0
+            data.eosinophil_pct = 0.0
+            data.basophil_pct = 0.0
+        else:
+            data.neutrophil_pct = neu_pct / total * 100
+            data.lymphocyte_pct = lym_pct / total * 100
+            data.monocyte_pct = mon_pct / total * 100
+            data.eosinophil_pct = eos_pct / total * 100
+            data.basophil_pct = bas_pct / total * 100
 
         num_cells = 30
         data.neutrophil_fsc = [random.gauss(350, 60) for _ in range(num_cells)]

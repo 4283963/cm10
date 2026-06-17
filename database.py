@@ -6,6 +6,7 @@ SQLite数据库模块
 import os
 import sqlite3
 import time
+import math
 from dataclasses import dataclass, asdict
 from typing import List, Optional, Dict, Any
 
@@ -208,15 +209,39 @@ def create_default_calibration(
     operator: str = "",
     remark: str = "",
 ) -> CalibrationRecord:
-    if abs(measured_mean) < 1e-10:
+    eps = 1e-12
+
+    def _safe_float(v: float, default: float = 0.0) -> float:
+        try:
+            fv = float(v)
+            if math.isfinite(fv):
+                return fv
+            return default
+        except (TypeError, ValueError):
+            return default
+
+    target_value = _safe_float(target_value, 0.0)
+    measured_mean = _safe_float(measured_mean, 0.0)
+    measured_std = _safe_float(measured_std, 0.0)
+
+    if abs(measured_mean) < eps:
         gain = 1.0
         offset = 0.0
         deviation = 100.0
     else:
-        gain = target_value / measured_mean if measured_mean != 0 else 1.0
+        if abs(target_value) > eps:
+            gain = target_value / measured_mean
+            deviation = ((measured_mean - target_value) / target_value) * 100.0
+        else:
+            gain = 1.0
+            deviation = 0.0
+        if not math.isfinite(gain) or gain > 100.0 or gain < 0.01:
+            gain = 1.0
+        if not math.isfinite(deviation):
+            deviation = 0.0
         offset = target_value - measured_mean
-        deviation = ((measured_mean - target_value) / target_value * 100.0) \
-            if target_value != 0 else 0.0
+        if not math.isfinite(offset):
+            offset = 0.0
 
     return CalibrationRecord(
         id=None,

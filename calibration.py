@@ -154,7 +154,10 @@ class CalibrationEngine:
             counts = [len(v) for v in self._collected_data.values()]
             min_count = min(counts) if counts else 0
             self._progress.sample_count = min_count
-            self._progress.progress_pct = min(100.0, (min_count / self._target_samples) * 100.0)
+            if self._target_samples > 0:
+                self._progress.progress_pct = min(100.0, (min_count / self._target_samples) * 100.0)
+            else:
+                self._progress.progress_pct = 0.0
             self._progress.status_message = f"已采集 {min_count}/{self._target_samples} 个样本"
 
             if min_count >= self._target_samples:
@@ -189,21 +192,38 @@ class CalibrationEngine:
         results: List[CalibrationResult] = []
 
         for channel in CHANNELS:
-            raw_values = self._collected_data.get(channel, [])
-            result = self._compute_channel_calibration(channel, raw_values)
+            try:
+                raw_values = self._collected_data.get(channel, [])
+                result = self._compute_channel_calibration(channel, raw_values)
+            except Exception as e:
+                label = CHANNEL_LABELS.get(channel, channel)
+                result = CalibrationResult(
+                    channel=channel,
+                    label=label,
+                    target_value=TARGET_VALUES.get(channel, 0.0),
+                    measured_mean=0.0,
+                    measured_std=0.0,
+                    measured_cv=0.0,
+                    deviation=0.0,
+                    gain=1.0,
+                    offset=0.0,
+                    sample_count=0,
+                    passed=False,
+                    message=f"计算异常: {str(e)}"
+                )
             results.append(result)
 
             if result.passed:
-                rec = create_default_calibration(
-                    channel_name=channel,
-                    target_value=result.target_value,
-                    measured_mean=result.measured_mean,
-                    measured_std=result.measured_std,
-                    sample_count=result.sample_count,
-                    operator="system",
-                    remark=f"自动标定 {time.strftime('%Y-%m-%d %H:%M:%S')}"
-                )
                 try:
+                    rec = create_default_calibration(
+                        channel_name=channel,
+                        target_value=result.target_value,
+                        measured_mean=result.measured_mean,
+                        measured_std=result.measured_std,
+                        sample_count=result.sample_count,
+                        operator="system",
+                        remark=f"自动标定 {time.strftime('%Y-%m-%d %H:%M:%S')}"
+                    )
                     self._db.insert_calibration(rec)
                 except Exception:
                     pass
@@ -215,8 +235,9 @@ class CalibrationEngine:
     ) -> CalibrationResult:
         target = TARGET_VALUES.get(channel, 0.0)
         label = CHANNEL_LABELS.get(channel, channel)
+        eps = 1e-12
 
-        if len(raw_values) == 0:
+        if not raw_values:
             return CalibrationResult(
                 channel=channel,
                 label=label,
@@ -232,39 +253,114 @@ class CalibrationEngine:
                 message="无有效数据"
             )
 
-        df = pd.DataFrame({"value": raw_values})
+        clean_values: List[float] = []
+        for v in raw_values:
+            try:
+                fv = float(v)
+                if np.isfinite(fv):
+                    clean_values.append(fv)
+            except (TypeError, ValueError):
+                continue
 
-        q1 = df["value"].quantile(0.01)
-        q99 = df["value"].quantile(0.99)
-        df_filtered = df[(df["value"] >= q1) & (df["value"] <= q99)]
+        if not clean_values:
+            return CalibrationResult(
+                channel=channel,
+                label=label,
+                target_value=target,
+                measured_mean=0.0,
+                measured_std=0.0,
+                measured_cv=0.0,
+                deviation=0.0,
+                gain=1.0,
+                offset=0.0,
+                sample_count=0,
+                passed=False,
+                message="数据全部无效"
+            )
 
-        if df_filtered.empty:
+        df = pd.DataFrame({"value": clean_values})
+
+        try:
+            q1 = float(df["value"].quantile(0.01))
+            q99 = float(df["value"].quantile(0.99))
+        except Exception:
+            q1 = float(df["value"].min())
+            q99 = float(df["value"].max())
+
+        if abs(q1 - q99) < eps:
             df_filtered = df
+        else:
+            df_filtered = df[(df["value"] >= q1) & (df["value"] <= q99)]
+            if df_filtered.empty:
+                df_filtered = df
+
+        sample_count = len(df_filtered)
+        if sample_count == 0:
+            return CalibrationResult(
+                channel=channel,
+                label=label,
+                target_value=target,
+                measured_mean=0.0,
+                measured_std=0.0,
+                measured_cv=0.0,
+                deviation=0.0,
+                gain=1.0,
+                offset=0.0,
+                sample_count=0,
+                passed=False,
+                message="过滤后无有效样本"
+            )
 
         measured_mean = float(df_filtered["value"].mean())
-        measured_std = float(df_filtered["value"].std(ddof=1)) if len(df_filtered) > 1 else 0.0
-        measured_cv = (measured_std / measured_mean * 100.0) if abs(measured_mean) > 1e-10 else 0.0
+        if not np.isfinite(measured_mean):
+            measured_mean = 0.0
 
-        if abs(target) > 1e-10:
+        if sample_count > 1:
+            measured_std = float(df_filtered["value"].std(ddof=1))
+            if not np.isfinite(measured_std):
+                measured_std = 0.0
+        else:
+            measured_std = 0.0
+
+        if abs(measured_mean) > eps:
+            measured_cv = (measured_std / measured_mean) * 100.0
+            if not np.isfinite(measured_cv):
+                measured_cv = 0.0
+        else:
+            measured_cv = 0.0
+
+        if abs(target) > eps:
             deviation = ((measured_mean - target) / target) * 100.0
-            gain = target / measured_mean if abs(measured_mean) > 1e-10 else 1.0
+            if not np.isfinite(deviation):
+                deviation = 0.0
         else:
             deviation = 0.0
+
+        if abs(measured_mean) > eps:
+            gain = target / measured_mean if abs(target) > eps else 1.0
+            if not np.isfinite(gain):
+                gain = 1.0
+        else:
+            gain = 1.0
+
+        if gain > 100.0 or gain < 0.01:
             gain = 1.0
 
         offset = target - measured_mean
+        if not np.isfinite(offset):
+            offset = 0.0
 
         deviation_ok = abs(deviation) <= self.ACCEPTABLE_DEVIATION_PCT
         cv_ok = measured_cv <= self.ACCEPTABLE_CV_PCT
-        passed = deviation_ok and cv_ok and len(df_filtered) >= 30
+        passed = deviation_ok and cv_ok and sample_count >= 30
 
         message_parts = []
         if not deviation_ok:
             message_parts.append(f"偏差={deviation:+.2f}% (允许±{self.ACCEPTABLE_DEVIATION_PCT}%)")
         if not cv_ok:
             message_parts.append(f"CV={measured_cv:.2f}% (允许≤{self.ACCEPTABLE_CV_PCT}%)")
-        if len(df_filtered) < 30:
-            message_parts.append(f"有效样本={len(df_filtered)} (需≥30)")
+        if sample_count < 30:
+            message_parts.append(f"有效样本={sample_count} (需≥30)")
         message = "；".join(message_parts) if message_parts else "标定通过"
 
         return CalibrationResult(
@@ -277,7 +373,7 @@ class CalibrationEngine:
             deviation=deviation,
             gain=gain,
             offset=offset,
-            sample_count=len(df_filtered),
+            sample_count=sample_count,
             passed=passed,
             message=message
         )

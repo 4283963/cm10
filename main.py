@@ -5,15 +5,54 @@
 
 import sys
 import os
+import traceback
+import threading
+from datetime import datetime
 
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QFont, QPalette, QColor
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QObject, Signal
 
 from main_window import MainWindow
+
+
+LOG_FILE = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "error.log"
+)
+
+
+class GlobalExceptionHandler(QObject):
+    error_signal = Signal(str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+    def handle_exception(self, exc_type, exc_value, exc_tb):
+        tb_str = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        log_line = f"[{timestamp}] Uncaught exception:\n{tb_str}\n"
+
+        try:
+            with open(LOG_FILE, "a", encoding="utf-8") as f:
+                f.write(log_line)
+        except Exception:
+            pass
+
+        try:
+            self.error_signal.emit(str(exc_value))
+        except Exception:
+            pass
+
+        if issubclass(exc_type, KeyboardInterrupt):
+            sys.__excepthook__(exc_type, exc_value, exc_tb)
+            return
+
+    def handle_thread_exception(self, args):
+        self.handle_exception(args.exc_type, args.exc_value, args.exc_traceback)
 
 
 def setup_app_style(app: QApplication):
@@ -88,7 +127,13 @@ def main():
 
     setup_app_style(app)
 
+    exc_handler = GlobalExceptionHandler()
+    sys.excepthook = exc_handler.handle_exception
+    if hasattr(threading, "excepthook"):
+        threading.excepthook = exc_handler.handle_thread_exception
+
     window = MainWindow()
+    exc_handler.error_signal.connect(window.on_global_error)
     window.show()
 
     sys.exit(app.exec())
